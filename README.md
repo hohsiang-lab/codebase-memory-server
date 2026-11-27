@@ -10,12 +10,12 @@ A self-hosted Rust service that keeps GitHub repositories indexed for shared, re
 
 ## Quick start
 
-Build the image locally (Docker Hub publication is pending):
+Pull the image from [Docker Hub](https://hub.docker.com/r/devhohing/codebase-memory-server) and get the example configuration:
 
 ```sh
 git clone https://github.com/hohsiang-lab/codebase-memory-server.git
 cd codebase-memory-server
-docker build -t codebase-memory-server:local .
+docker pull devhohing/codebase-memory-server:latest
 cp repos.example.json repos.json
 ```
 
@@ -26,7 +26,7 @@ Create a GitHub App with **Contents: read**, installed only on the selected repo
 Run the same image in two modes. Replace the example owner and credential path:
 
 ```sh
-IMAGE=codebase-memory-server:local
+IMAGE=devhohing/codebase-memory-server:latest
 GITHUB_OWNER=your-github-owner
 GITHUB_APP_DIR=/absolute/path/to/github-app
 
@@ -73,7 +73,7 @@ The optional `cross_repo` object maps repository names to lists of other configu
 
 ## Development
 
-Run `cargo test --locked` or build the Docker image. CI tests both architectures and runs `tests/smoke.sh` before publishing to Docker Hub from `main`. The upstream engine is checksum-verified during the build.
+Run `cargo test --locked` or build the Docker image locally with `docker build -t devhohing/codebase-memory-server:latest .` (also works before the first image is published). CI tests both architectures and runs `tests/smoke.sh` before publishing to Docker Hub from `main`. The upstream engine is checksum-verified during the build.
 
 ## License
 
