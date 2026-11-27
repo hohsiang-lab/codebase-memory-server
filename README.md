@@ -35,6 +35,18 @@ The HTTP endpoint itself has no authentication or per-user authorization. Put it
 
 The MCP proxy forwards only the upstream analysis tools and requires canonical configured project names for project queries; mutation tools remain local to the index worker. The upstream binary independently runs with the analysis tool profile.
 
+## Container images
+
+Images are published to Docker Hub from the main branch after the native AMD64 and ARM64 image smoke tests. The `latest` and `sha-<commit>` tags are multi-platform manifests; `sha-<commit>-amd64` and `sha-<commit>-arm64` identify the tested architecture images. Prefer the commit tag or digest for reproducible deployments.
+
+To configure publishing, create a public `codebase-memory-server` repository in the intended Docker Hub namespace. In GitHub Actions settings, configure:
+
+- Variable `DOCKERHUB_NAMESPACE`: the Docker Hub repository owner (organization or user).
+- Variable `DOCKERHUB_USERNAME`: the Docker Hub account or organization used to authenticate.
+- Secret `DOCKERHUB_TOKEN`: a Docker Hub access token with permission to push to that repository.
+
+Pull the image using `docker pull <namespace>/codebase-memory-server:latest`, replacing `<namespace>` with the configured Docker Hub owner. Pull requests build and test without registry credentials and do not publish images.
+
 ## Build
 
 Run `cargo test` or build the container with Docker Buildx. The upstream binary is fetched for the target Linux architecture and checked against its release checksum manifest. The upstream engine remains MIT-licensed; its license is included in the image.
