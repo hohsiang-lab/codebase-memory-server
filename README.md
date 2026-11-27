@@ -10,18 +10,16 @@ A self-hosted Rust service that keeps GitHub repositories indexed for shared, re
 
 ## Quick start
 
-Pull the image from [Docker Hub](https://hub.docker.com/r/devhohing/codebase-memory-server) and get the example configuration:
+In a new working directory, pull the image from [Docker Hub](https://hub.docker.com/r/devhohing/codebase-memory-server) and download the example configuration:
 
 ```sh
-git clone https://github.com/hohsiang-lab/codebase-memory-server.git
-cd codebase-memory-server
 docker pull devhohing/codebase-memory-server:latest
-cp repos.example.json repos.json
+curl -fsSL https://raw.githubusercontent.com/hohsiang-lab/codebase-memory-server/main/repos.example.json -o repos.json
 ```
 
 Edit [repos.example.json](repos.example.json)'s local copy, `repos.json`, to select repositories in one GitHub account or organization. Only the `main` branch is supported.
 
-Create a GitHub App with **Contents: read**, installed only on the selected repositories. In a private directory outside the source checkout, save three files: `app_id`, `installation_id`, and `private_key` (RSA PEM). The files and directory must be readable by container UID/GID 10001, without access by unrelated users.
+Create a GitHub App with **Contents: read**, installed only on the selected repositories. In a private directory outside the working directory, save three files: `app_id`, `installation_id`, and `private_key` (RSA PEM). The files and directory must be readable by container UID/GID 10001, without access by unrelated users.
 
 Run the same image in two modes. Replace the example owner and credential path:
 
@@ -73,7 +71,7 @@ The optional `cross_repo` object maps repository names to lists of other configu
 
 ## Development
 
-Run `cargo test --locked` or build the Docker image locally with `docker build -t devhohing/codebase-memory-server:latest .` (also works before the first image is published). CI tests both architectures and runs `tests/smoke.sh` before publishing to Docker Hub from `main`. The upstream engine is checksum-verified during the build.
+From a source checkout, run `cargo test --locked` or build the Docker image locally with `docker build -t devhohing/codebase-memory-server:latest .` (also works before the first image is published). CI tests both architectures and runs `tests/smoke.sh` before publishing to Docker Hub from `main`. The upstream engine is checksum-verified during the build.
 
 ## License
 
