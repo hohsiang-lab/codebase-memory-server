@@ -1,42 +1,78 @@
 # Codebase Memory Server
 
-A Rust service that hosts the upstream [Codebase Memory MCP](https://github.com/DeusData/codebase-memory-mcp) engine for teams. It uses the existing engine rather than reimplementing indexing or the graph database.
+A self-hosted Rust service that keeps GitHub repositories indexed for shared, read-only code exploration over MCP. Built on [Codebase Memory MCP](https://github.com/DeusData/codebase-memory-mcp).
 
-**Development preview. Do not expose it to untrusted clients or deploy private repositories until CI and deployment-specific access controls have been verified.**
+- GitHub App synchronization and automatic indexing of selected repositories.
+- Code search, graph exploration and optional cross-repository analysis.
+- Streamable HTTP MCP endpoint; Linux AMD64 and ARM64 images.
 
-## Run
+**Development preview.** Real GitHub App deployment has not yet been validated. The MCP endpoint has no built-in authentication or per-user authorization. Every permitted client can read every configured repository. Keep it on a trusted private network or behind an authenticated, authorized gateway.
 
-The same image has two modes:
+## Quick start
 
-- `codebase-memory-server sync`: GitHub App installation-token synchronization of selected main branches. Mount the GitHub App credentials only here.
-- `codebase-memory-server serve`: serialized indexing, catalog reconciliation, and a read-only Streamable HTTP MCP endpoint at `/mcp`; readiness endpoint at `/healthz`.
+In a new working directory, pull the image from [Docker Hub](https://hub.docker.com/r/devhohing/codebase-memory-server) and download the example configuration:
 
-Both need the same repository volume at `/repos` and the same configuration file (see [repos.example.json](repos.example.json)). Mount the repository volume read-only in the server. The server alone needs a writable dedicated graph cache at `/data/cbm`. Keep UID/GID 10001 for both processes. Use one server replica per cache. The runtime directory must be private (0700), with non-world-writable ancestors, and should live on ephemeral storage for Kubernetes.
+```sh
+docker pull devhohing/codebase-memory-server:latest
+curl -fsSL https://raw.githubusercontent.com/hohsiang-lab/codebase-memory-server/main/repos.example.json -o repos.json
+```
 
-| Setting | Default |
+Edit [repos.example.json](repos.example.json)'s local copy, `repos.json`, to select repositories in one GitHub account or organization. Only the `main` branch is supported.
+
+Create a GitHub App with **Contents: read**, installed only on the selected repositories. In a private directory outside the working directory, save three files: `app_id`, `installation_id`, and `private_key` (RSA PEM). The files and directory must be readable by container UID/GID 10001, without access by unrelated users.
+
+Run the same image in two modes. Replace the example owner and credential path:
+
+```sh
+IMAGE=devhohing/codebase-memory-server:latest
+GITHUB_OWNER=your-github-owner
+GITHUB_APP_DIR=/absolute/path/to/github-app
+
+docker run -d --name cbm-sync \
+  -e GITHUB_OWNER="$GITHUB_OWNER" \
+  -v cbm-repos:/repos \
+  -v "$PWD/repos.json:/etc/codebase/repos.json:ro" \
+  -v "$GITHUB_APP_DIR:/run/secrets/github:ro" \
+  "$IMAGE" sync
+
+docker run -d --name cbm-server \
+  -p 127.0.0.1:8000:8000 \
+  -v cbm-repos:/repos:ro \
+  -v cbm-cache:/data/cbm \
+  -v "$PWD/repos.json:/etc/codebase/repos.json:ro" \
+  "$IMAGE" serve
+```
+
+Connect a Streamable HTTP MCP client to `http://127.0.0.1:8000/mcp`. Once the server starts, `curl --fail http://127.0.0.1:8000/healthz` checks readiness; initial indexing continues asynchronously.
+
+## Configuration
+
+| Environment variable | Default |
 | --- | --- |
-| GITHUB_OWNER (sync only) | Required, GitHub organization or account |
-| GITHUB_APP_SECRET_DIR (sync only) | /run/secrets/github (app_id, installation_id, private_key files) |
-| REPOS_CONFIG | /etc/codebase/repos.json |
-| SYNC_INTERVAL_SECONDS | 120 |
-| INDEX_POLL_SECONDS | 15 |
-| INDEX_TIMEOUT_SECONDS | 5400 |
-| CBM_CACHE_DIR | /data/cbm |
-| CBM_RUNTIME_DIR | /data/cbm/runtime |
-| LISTEN_ADDR | 127.0.0.1:8000 (container sets 0.0.0.0:8000) |
+| `GITHUB_OWNER` (sync only) | Required |
+| `GITHUB_APP_SECRET_DIR` (sync only) | `/run/secrets/github` |
+| `REPOS_CONFIG` | `/etc/codebase/repos.json` |
+| `SYNC_INTERVAL_SECONDS` | `120` |
+| `INDEX_POLL_SECONDS` | `15` |
+| `INDEX_TIMEOUT_SECONDS` | `5400` |
+| `CBM_CACHE_DIR` | `/data/cbm` |
+| `CBM_RUNTIME_DIR` | `/data/cbm/runtime` |
+| `LISTEN_ADDR` | `0.0.0.0:8000` in Docker |
 
-Use a GitHub App with Contents: read on the selected repositories. The service requests a short-lived token restricted to the configured names. Do not store credentials or real private repository lists in this repository. Use a separate dedicated cache and checkout volume for each installation/owner.
+The optional `cross_repo` object maps repository names to lists of other configured repository names that may be linked. Restart both processes after changing the configuration.
 
-Configuration is loaded on process startup; restart both modes when it changes. Removing a repository or cross-repository permission resets derived graph generations before the HTTP endpoint starts; the worker rebuilds only approved repositories afterwards. The first start against a legacy cache with unknown policy also resets its derived graphs. Additions alone do not reset the catalog. Existing checkouts remain untouched. Committed graph artifacts are not accepted. Use a dedicated cache for this read-only service, not a cache containing user-authored graph data such as ADRs; back up the cache before migration.
+## Deployment and security
 
-## Security boundary
+- Mount GitHub App credentials only into `sync`; it requests short-lived tokens restricted to the configured repositories.
+- Both processes use UID/GID 10001. The configuration must be readable by that user. Mount `/repos` read-only in `serve` and give it a separate writable graph cache. Use a private runtime directory (0700) with non-world-writable ancestors; use ephemeral runtime storage on Kubernetes.
+- Use dedicated checkout and cache volumes for each installation/owner and one server replica per cache.
+- Removing a repository or cross-repository permission, or starting with a legacy cache of unknown policy, resets derived graphs before serving. Only approved repositories are rebuilt; existing checkouts remain untouched. Additions alone do not reset the catalog. Back up legacy caches and never share this cache with user-authored graph data (such as ADRs).
+- Mutation tools are not exposed over MCP. The server and upstream engine enforce read-only analysis; committed graph artifacts are not accepted.
 
-The HTTP endpoint itself has no authentication or per-user authorization. Put it behind a trusted private network or an authenticated gateway. Every permitted client can read every configured repository. Never publish this endpoint to the internet without appropriate authentication and authorization.
+## Development
 
-The MCP proxy forwards only the upstream analysis tools and requires canonical configured project names for project queries; mutation tools remain local to the index worker. The upstream binary independently runs with the analysis tool profile.
+From a source checkout, run `cargo test --locked` or build the Docker image locally with `docker build -t devhohing/codebase-memory-server:latest .` (also works before the first image is published). CI tests both architectures and runs `tests/smoke.sh` before publishing to Docker Hub from `main`. The upstream engine is checksum-verified during the build.
 
-## Build
+## License
 
-Run `cargo test` or build the container with Docker Buildx. The upstream binary is fetched for the target Linux architecture and checked against its release checksum manifest. The upstream engine remains MIT-licensed; its license is included in the image.
-
-This project is MIT-licensed.
+[MIT](LICENSE). The upstream engine is also MIT-licensed; its license is included in the container image.
