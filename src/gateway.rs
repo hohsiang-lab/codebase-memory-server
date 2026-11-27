@@ -4,7 +4,7 @@ use rmcp::{
         ServerCapabilities, ServerConfig, ProtocolVersion, Implementation},
     service::RequestContext,
     transport::{child_process::TokioChildProcess, streamable_http_server::{
-        StreamableHttpService, session::local::LocalSessionManager,
+        StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
     }},
     ErrorData, Peer, RoleClient, RoleServer, ServerHandler, ServiceExt,
 };
@@ -70,10 +70,14 @@ pub async fn serve(config: Config) -> Result<()> {
     command.arg("--tool-profile=analysis");
     let upstream = timeout(Duration::from_secs(60), ().serve(TokioChildProcess::new(command)?)).await??;
     let gateway = Gateway { peer: upstream.peer().clone(), projects: Arc::new(config.names()) };
+    let mut http_config = StreamableHttpServerConfig::default();
+    if let Ok(hosts) = env::var("MCP_ALLOWED_HOSTS") {
+        http_config.allowed_hosts.extend(hosts.split(',').map(str::trim).filter(|host| !host.is_empty()).map(str::to_owned));
+    }
     let service = StreamableHttpService::new(
         move || Ok(gateway.clone()),
         LocalSessionManager::default().into(),
-        Default::default(),
+        http_config,
     );
     let router = axum::Router::new()
         .route("/healthz", axum::routing::get(|| async { "ok" }))
