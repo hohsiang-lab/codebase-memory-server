@@ -1,0 +1,6 @@
+{
+  "repositories": [
+    {"name": "example", "branch": "main"}
+  ],
+  "cross_repo": {}
+}
