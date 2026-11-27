@@ -90,6 +90,13 @@ impl Engine {
         let Some(wanted) = source_sha(name)? else { return Ok(None) };
         let path = checkout(name);
         ensure!(git(&path, &["rev-parse", "HEAD"], None, 20).await? == wanted, "checkout SHA differs from marker");
+        // The engine can auto-import a committed graph artifact. Do not
+        // let source repositories restore untrusted or revoked graph data.
+        match fs::symlink_metadata(path.join(".codebase-memory/graph.db.zst")) {
+            Ok(_) => bail!("repository-provided graph artifacts are not supported"),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {},
+            Err(e) => return Err(e.into()),
+        }
         let state = read_json(&self.status(name))?.unwrap_or_else(|| json!({}));
         if !force && state["indexed_sha"].as_str() == Some(&wanted) {
             return Ok(Some(wanted));
@@ -147,37 +154,40 @@ impl Engine {
         let policy = self.cache.join("catalog-policy.json");
         let rebuild = self.cache.join("catalog-rebuild.json");
         let desired = serde_json::to_value(config)?;
-        let old_policy = read_json(&policy)?;
-        let stale: Vec<_> = catalog.keys().filter(|name| !names.contains(*name)).cloned().collect();
-        let change = !stale.is_empty()
-            || old_policy.as_ref().is_some_and(|old| old != &desired)
-            || rebuild.exists();
-        if change {
-            // Persist intent before deleting anything. On restart the service
-            // stays closed until all remaining previously indexed graphs are refreshed.
+        let old: Option<Config> = read_json(&policy)?
+            .map(serde_json::from_value).transpose()?;
+        // Cross-repo edges are bidirectional. The upstream full mode can
+        // take an unchanged-source no-op, and cross-repo mode cannot clear
+        // edges with an empty target list. A revoked or unknown policy must
+        // therefore discard derived graph generations, not merely reindex.
+        let reset = rebuild.exists()
+            || catalog.keys().any(|name| !names.contains(name))
+            || old.as_ref().map_or(!catalog.is_empty(), |old| {
+                !old.names().is_subset(&names)
+                    || old.cross_repo.iter().any(|(source, peers)| {
+                        peers.iter().any(|peer| {
+                            !config.cross_repo.get(source).is_some_and(|new| new.contains(peer))
+                        })
+                    })
+            });
+        for (name, root) in &catalog {
+            ensure!(safe_name(name) && Path::new(root) == checkout(name),
+                "cache contains an unmanaged project; use a dedicated cache");
+        }
+        if reset {
+            // Persist the reset before the first deletion. An interrupted
+            // reset repeats before HTTP opens. Only graph data is discarded;
+            // checkouts remain untouched and the normal worker rebuilds
+            // approved projects after startup.
             atomic_json(&rebuild, &json!({"required":true}))?;
-        }
-        for name in &stale {
-            // Use the engine API, not direct SQLite file deletion.
-            self.cli("delete_project", json!({"project":name}), Duration::from_secs(120)).await?;
-            if safe_name(name) {
+            for name in catalog.keys() {
+                self.cli("delete_project", json!({"project":name}), Duration::from_secs(120)).await?;
                 remove_if_exists(&self.status(name))?;
+                log("project_removed", name);
             }
-            log("project_removed", name);
+            ensure!(self.catalog().await?.is_empty(), "catalog reset incomplete");
         }
-        let current = self.catalog().await?;
-        for (name, root) in &current {
-            ensure!(names.contains(name), "unapproved index remains in cache");
-            ensure!(Path::new(root) == checkout(name), "index root differs from managed checkout");
-            if change {
-                ensure!(self.index_one(name, true).await?.is_some(), "cannot refresh retained graph");
-            }
-        }
-        if change {
-            for (name, peers) in &config.cross_repo {
-                self.cross_repo(name, peers).await?;
-            }
-        }
+        let current = if reset { BTreeMap::new() } else { catalog };
         atomic_json(&policy, &desired)?;
         remove_if_exists(&rebuild)?;
         Ok(current.into_keys().collect())

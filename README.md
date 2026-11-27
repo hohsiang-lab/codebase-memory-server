@@ -27,7 +27,7 @@ Both need the same repository volume at `/repos` and the same configuration file
 
 Use a GitHub App with Contents: read on the selected repositories. The service requests a short-lived token restricted to the configured names. Do not store credentials or real private repository lists in this repository. Use a separate dedicated cache and checkout volume for each installation/owner.
 
-Configuration is loaded on process startup; restart both modes when it changes. Removing a repository removes its graph from the dedicated catalog before the HTTP endpoint starts. When the catalog policy changes, retained indexes are refreshed. Checkouts of removed repositories are not deleted; dispose of them separately according to your data retention policy. Back up the dedicated cache before a migration.
+Configuration is loaded on process startup; restart both modes when it changes. Removing a repository or cross-repository permission resets derived graph generations before the HTTP endpoint starts; the worker rebuilds only approved repositories afterwards. The first start against a legacy cache with unknown policy also resets its derived graphs. Additions alone do not reset the catalog. Existing checkouts remain untouched. Committed graph artifacts are not accepted. Use a dedicated cache for this read-only service, not a cache containing user-authored graph data such as ADRs; back up the cache before migration.
 
 ## Security boundary
 

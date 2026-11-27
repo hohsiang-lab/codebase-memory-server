@@ -35,6 +35,8 @@ docker run --rm "${mounts[@]}" --entrypoint sh "$image" -ec '
     printf "{\"repo_path\":\"/repos/%s\",\"name\":\"%s\",\"mode\":\"full\",\"persistence\":false}" "$name" "$name" >/tmp/index.json
     codebase-memory-mcp cli --quiet index_repository --args-file /tmp/index.json --format json
   done
+  printf "{\"repo_path\":\"/repos/example\",\"name\":\"example\",\"mode\":\"cross-repo-intelligence\",\"target_projects\":[\"removed\"]}" >/tmp/cross.json
+  codebase-memory-mcp cli --quiet index_repository --args-file /tmp/cross.json --format json
 '
 docker run -d --name "$container" -p 127.0.0.1::8000 "${mounts[@]}" \
   -v "$work/repos.json:/etc/codebase/repos.json:ro" "$image" serve
@@ -70,9 +72,19 @@ rpc '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | jq -e '
   [.result.tools[].name] | length == 13 and
   (index("search_code") != null) and (index("delete_project") == null) and
   (index("index_repository") == null) and (index("manage_adr") == null)'
+# Catalog cleanup runs before serving; approved graphs can rebuild afterwards.
+for i in $(seq 1 120); do
+  if rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_projects","arguments":{"format":"json"}}}' | jq -e '
+    (.result.structuredContent // (.result.content[0].text | fromjson)) |
+    [.projects[].name] == ["example"]' >/dev/null; then break; fi
+  sleep 2
+done
 rpc '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"list_projects","arguments":{"format":"json"}}}' | jq -e '
   (.result.structuredContent // (.result.content[0].text | fromjson)) |
   [.projects[].name] == ["example"]'
+rpc '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"index_status","arguments":{"project":"example","format":"json"}}}' | jq -e '
+  (.result.structuredContent // (.result.content[0].text | fromjson)) |
+  .cross_repo.status == "never_run"'
 rpc '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"search_code","arguments":{"project":"example","pattern":"hello"}}}' | jq -e '
   .result != null and (.result.isError != true)'
 for name in delete_project index_repository manage_adr; do
