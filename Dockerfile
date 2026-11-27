@@ -1,8 +1,8 @@
 FROM rust:1-trixie AS build
 WORKDIR /src
-COPY Cargo.toml ./
+COPY Cargo.toml Cargo.lock ./
 COPY src/ src/
-RUN cargo test && cargo build --release
+RUN cargo test --locked --release && cargo build --locked --release
 
 FROM debian:trixie-slim AS upstream
 ARG TARGETARCH
