@@ -30,9 +30,6 @@ IMAGE=codebase-memory-server:local
 GITHUB_OWNER=your-github-owner
 GITHUB_APP_DIR=/absolute/path/to/github-app
 
-docker volume create cbm-repos
-docker volume create cbm-cache
-
 docker run -d --name cbm-sync \
   -e GITHUB_OWNER="$GITHUB_OWNER" \
   -v cbm-repos:/repos \

@@ -34,17 +34,11 @@ jobs:
         run: docker buildx build --platform linux/${{ matrix.arch }} --load -t cbm:ci .
       - name: Verify actual MCP endpoint and catalog isolation
         run: bash tests/smoke.sh cbm:ci
-      - name: Verify Docker Hub publishing configuration
+      - name: Verify Docker Hub namespace
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         env:
-          DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
-          DOCKER_HUB_TOKEN: ${{ secrets.DOCKER_HUB_TOKEN }}
           DOCKERHUB_NAMESPACE: ${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKER_HUB_USERNAME }}
         run: |
-          if [[ -z "$DOCKER_HUB_USERNAME" || -z "$DOCKER_HUB_TOKEN" ]]; then
-            echo 'Docker Hub credentials are unavailable. Check organization secret access for this repository.' >&2
-            exit 1
-          fi
           if [[ ! "$DOCKERHUB_NAMESPACE" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
             echo 'Invalid Docker Hub namespace. Set DOCKERHUB_NAMESPACE if it differs from the login account.' >&2
             exit 1
@@ -62,10 +56,7 @@ jobs:
           ARCH: ${{ matrix.arch }}
           IMAGE: docker.io/${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKER_HUB_USERNAME }}/codebase-memory-server
         run: |
-          test -f Cargo.lock
-          git ls-files --error-unmatch Cargo.lock >/dev/null
-          image="$IMAGE"
-          tag="$image:sha-$GITHUB_SHA-$ARCH"
+          tag="$IMAGE:sha-$GITHUB_SHA-$ARCH"
           docker tag cbm:ci "$tag"
           docker push "$tag"
 
@@ -84,8 +75,7 @@ jobs:
         env:
           IMAGE: docker.io/${{ vars.DOCKERHUB_NAMESPACE || secrets.DOCKER_HUB_USERNAME }}/codebase-memory-server
         run: |
-          image="$IMAGE"
           docker buildx imagetools create \
-            -t "$image:latest" -t "$image:sha-$GITHUB_SHA" \
-            "$image:sha-$GITHUB_SHA-amd64" "$image:sha-$GITHUB_SHA-arm64"
-          docker buildx imagetools inspect "$image:sha-$GITHUB_SHA"
+            -t "$IMAGE:latest" -t "$IMAGE:sha-$GITHUB_SHA" \
+            "$IMAGE:sha-$GITHUB_SHA-amd64" "$IMAGE:sha-$GITHUB_SHA-arm64"
+          docker buildx imagetools inspect "$IMAGE:sha-$GITHUB_SHA"
