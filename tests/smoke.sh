@@ -39,6 +39,7 @@ docker run --rm "${mounts[@]}" --entrypoint sh "$image" -ec '
   codebase-memory-mcp cli --quiet index_repository --args-file /tmp/cross.json --format json
 '
 docker run -d --name "$container" -p 127.0.0.1::8000 "${mounts[@]}" \
+  -e MCP_ALLOWED_HOSTS=mcp.example.invalid \
   -v "$work/repos.json:/etc/codebase/repos.json:ro" "$image" serve
 port=$(docker port "$container" 8000/tcp | cut -d: -f2)
 url="http://127.0.0.1:$port"
@@ -54,9 +55,17 @@ decode() {
     cat "$1"
   fi
 }
-curl -fsS --max-time 30 -D "$work/headers" -o "$work/body" \
+initialize() {
+  curl -sS --max-time 30 -w '%{http_code}' -D "$work/headers" -o "$work/body" \
   -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' "$url/mcp"
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' "$@" "$url/mcp"
+}
+# Keep loopback access, allow only the configured proxy host, and reject arbitrary hosts.
+test "$(initialize -H 'Host: denied.example.invalid')" = 403
+grep -Fq 'Host header is not allowed' "$work/body"
+test "$(initialize -H 'Host: mcp.example.invalid')" = 200
+decode "$work/body" | jq -e '.result.capabilities.tools != null'
+test "$(initialize)" = 200
 decode "$work/body" | jq -e '.result.capabilities.tools != null'
 session=$(awk 'tolower($1)=="mcp-session-id:" {gsub(/\r/,"",$2);print $2}' "$work/headers")
 test -n "$session"
