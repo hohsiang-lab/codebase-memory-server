@@ -58,6 +58,9 @@ Connect a Streamable HTTP MCP client to `http://127.0.0.1:8000/mcp`. Once the se
 | `CBM_CACHE_DIR` | `/data/cbm` |
 | `CBM_RUNTIME_DIR` | `/data/cbm/runtime` |
 | `LISTEN_ADDR` | `0.0.0.0:8000` in Docker |
+| `MCP_ALLOWED_HOSTS` (serve only) | Unset; only loopback hosts are allowed |
+
+For a trusted reverse proxy, set `MCP_ALLOWED_HOSTS` to the exact comma-separated hostnames or host:port authorities (without schemes or paths). These extend the default loopback allowlist; unknown hosts remain rejected. Host validation is not authentication.
 
 The optional `cross_repo` object maps repository names to lists of other configured repository names that may be linked. Restart both processes after changing the configuration.
 
